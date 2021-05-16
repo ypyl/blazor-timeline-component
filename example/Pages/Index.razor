@@ -1,0 +1,92 @@
+﻿@page "/"
+@using timeline_component
+@inject IJSRuntime JSRuntime
+
+<div class="relative h-full">
+    <div @ref="imagesElement" class="h-full absolute left-0 overflow-x-hidden overflow-y-scroll hide-scroll mr-10"
+        @onscroll="@OnScroll">
+        @foreach (var (date, count) in dates)
+        {
+            var temp = count;
+            <div class="font-medium mt-2 mb-2 ml-3">@date.ToString("ddd, MMM d, yyyy")</div>
+            <div class="flex flex-row flex-wrap">
+                @while (temp-- > 0)
+                {
+                    <div class="m-0.5"><img loading="lazy" src="https://via.placeholder.com/250x200" /></div>
+                }
+            </div>
+        }
+    </div>
+    <Timeline @ref="timeline" OnPositionChanged="@ScrollImages"></Timeline>
+</div>
+
+
+@code {
+    private ElementReference imagesElement;
+    private Timeline timeline;
+    private double viewHeight;
+    private readonly List<(DateTime, int)> dates = new List<(DateTime, int)>
+{
+(new DateTime(2017, 1, 1), 1),
+(new DateTime(2017, 2, 1), 5),
+(new DateTime(2017, 3, 1), 15),
+(new DateTime(2017, 4, 1), 10),
+(new DateTime(2017, 8, 1), 12),
+(new DateTime(2017, 10, 1), 5),
+(new DateTime(2018, 1, 1), 25),
+(new DateTime(2018, 3, 1), 10),
+(new DateTime(2018, 6, 1), 5),
+(new DateTime(2018, 8, 1), 25),
+(new DateTime(2019, 1, 1), 30),
+(new DateTime(2019, 2, 1), 10),
+(new DateTime(2019, 3, 1), 30),
+(new DateTime(2019, 11, 1), 40),
+(new DateTime(2019, 12, 1), 15),
+(new DateTime(2020, 5, 1), 5),
+(new DateTime(2020, 6, 1), 25),
+(new DateTime(2020, 7, 1), 15),
+(new DateTime(2021, 1, 1), 35),
+(new DateTime(2021, 2, 1), 40),
+(new DateTime(2021, 3, 1), 30),
+};
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        viewHeight = await JSRuntime.InvokeAsync<double>("getWindowHeight");
+        dates.Reverse();
+        var timelineData = dates
+        .GroupBy(x => x.Item1.Year)
+        .ToDictionary(x => x.Key, x => x.ToDictionary(z => z.Item1.Month, z => z.Item2));
+
+        timeline.SetData(timelineData);
+    }
+
+    private async Task ScrollImages(double percent)
+    {
+        var values = await JSRuntime.InvokeAsync<double[]>("getDocumentTopScroll", imagesElement);
+        if (values.Length != 2)
+        {
+            throw new InvalidOperationException("Incorrect number of returned values.");
+        }
+        var maxValue = values[1];
+        var adjustedPercent = percent - viewHeight * percent / maxValue;
+        var scrollHeight = await JSRuntime.InvokeAsync<double>("getScrollHeight", imagesElement);
+        await JSRuntime.InvokeVoidAsync("scrollToCustom", imagesElement, scrollHeight * adjustedPercent);
+    }
+
+    private async Task OnScroll(EventArgs e)
+    {
+        var values = await JSRuntime.InvokeAsync<double[]>("getDocumentTopScroll", imagesElement);
+        if (values.Length != 2)
+        {
+            throw new InvalidOperationException("Incorrect number of returned values.");
+        }
+        var scrollTop = values[0];
+        var maxValue = values[1];
+        var percent = scrollTop / maxValue;
+        var adjustedPercent = percent + viewHeight * percent / maxValue;
+        await timeline.AdjustPointerPosition(adjustedPercent);
+        await timeline.ShowPointer();
+    }
+}

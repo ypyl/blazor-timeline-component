@@ -1,0 +1,167 @@
+﻿@using System.Globalization
+
+@inject TimelineComponentJsInterop JSInterop
+
+<div class="fixed bottom-0 top-0 right-0 w-10">
+    <div class="relative h-full">
+        <div @ref="main" class="h-full flex flex-col place-content-center" @onmouseout="MouseOut"
+            @onmouseover="MouseOver" @onclick="MouseClick" @onmousemove="MouseMove">
+            @foreach (var (textItem, styleItem, info) in Styles)
+            {
+                <div style=@styleItem class="flex-auto text-right font-sans text-xs text-gray-500 border-t border-gray-300"
+                @onmousemove="@(() => currentText = info)">@textItem
+                </div>
+            }
+        </div>
+        <div @ref="pointer"
+            style="transition: opacity linear .15s; pointer-events: none; height: 2px; visibility: hidden"
+            class="absolute top-0 bg-blue-500 min-w-full">
+        </div>
+        <div @ref="pointerWindow" style="transition: opacity linear .15s; pointer-events: none; visibility: hidden"
+            class="absolute top-0 right-0 min-w-max px-1 py-0.5 bg-gray-300 bg-opacity-30 border-b border-blue-500 rounded font-medium">
+            @currentText
+        </div>
+    </div>
+</div>
+
+@code {
+    private ElementReference main;
+    private ElementReference pointerWindow;
+    private ElementReference pointer;
+    [Parameter]
+    public EventCallback<double> OnPositionChanged { get; set; }
+    // Initial value is required to properly calculate the height of the element with text
+    private string currentText = "Jan 2000";
+    private double top;
+    private double bottom;
+    private double pointerWindowHeight;
+    private double pointerHeight;
+    private bool pointerVisible = false;
+    private bool skipHiding = false;
+
+    public async Task AdjustPointerPosition(double percent)
+    {
+        var value = percent switch
+        {
+            _ when percent < 0 => 0,
+            _ when percent > 1 => 1,
+            _ => percent
+        };
+        var clientY = (bottom - top) * percent;
+        await SetPointerPosition(clientY);
+        var valuePercent = value * 100;
+        foreach (var item in rangeMapping)
+        {
+            var (start, end) = item.Key;
+            if (start <= valuePercent && valuePercent < end)
+            {
+                currentText = item.Value;
+                await InvokeAsync(StateHasChanged);
+                break;
+            }
+        }
+    }
+
+    private async Task SetPointerPosition(double y)
+    {
+        var offsetY1 = y - pointerWindowHeight;
+        if (offsetY1 < 0)
+        {
+            offsetY1 = 0;
+        }
+        await JSInterop.SetTranslateY(pointerWindow, offsetY1);
+        var offsetY2 = y - pointerHeight + 1;
+        if (y < pointerHeight)
+        {
+            offsetY2 = 1;
+        }
+        else if (y > (bottom - pointerHeight))
+        {
+            offsetY2 = bottom - pointerHeight + 1;
+        }
+        await JSInterop.SetTranslateY(pointer, offsetY2);
+    }
+
+    public async Task ShowPointer(int time = 3)
+    {
+        if (!pointerVisible)
+        {
+            await JSInterop.SetVisibility(pointer, true);
+            await JSInterop.SetVisibility(pointerWindow, true);
+            pointerVisible = true;
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(time * 1000);
+                if (!skipHiding)
+                {
+                    await JSInterop.SetVisibility(pointer, false);
+                    await JSInterop.SetVisibility(pointerWindow, false);
+                    pointerVisible = false;
+                }
+            });
+        }
+    }
+
+    private string styleFormat = "cursor: row-resize; flex-basis: {0}%";
+    private List<(string, string, string)> Styles = new List<(string, string, string)>();
+    private Dictionary<(double, double), string> rangeMapping = new Dictionary<(double, double), string>();
+
+    public void SetData(Dictionary<int, Dictionary<int, int>> data)
+    {
+        var total = data.SelectMany(x => x.Value).Sum(x => x.Value);
+        var showYear = true;
+        var previous = 0.0;
+        foreach (var yearItem in data)
+        {
+            foreach (var monthItem in yearItem.Value)
+            {
+                var text = showYear ? yearItem.Key.ToString() : string.Empty;
+                if (showYear)
+                {
+                    showYear = false;
+                }
+                var percent = monthItem.Value * 100.0 / total;
+                var txt = $"{CultureInfo.CurrentCulture.DateTimeFormat.GetAbbreviatedMonthName(monthItem.Key)} {yearItem.Key}";
+                rangeMapping[(previous, previous + percent)] = txt;
+                previous += percent;
+                Styles.Add(
+                (text
+                , string.Format(styleFormat, percent)
+                , txt));
+            }
+            showYear = true;
+        }
+    }
+
+    private async Task MouseClick(MouseEventArgs e) =>
+    await OnPositionChanged.InvokeAsync((e.ClientY - top) / (bottom - top));
+
+    private async Task TaskSetVisibility(bool currentValue, bool value)
+    {
+        if (currentValue)
+        {
+            await JSInterop.SetVisibility(pointer, value);
+            await JSInterop.SetVisibility(pointerWindow, value);
+            pointerVisible = value;
+            skipHiding = value;
+        }
+    }
+
+    private async Task MouseOut(MouseEventArgs e) => await TaskSetVisibility(pointerVisible, false);
+
+    private async Task MouseOver(MouseEventArgs e) => await TaskSetVisibility(!pointerVisible, true);
+
+    private async Task MouseMove(MouseEventArgs e) => await SetPointerPosition(e.ClientY - top);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            var values = await JSInterop.GetBoundingClient(main);
+            top = values[0];
+            bottom = values[1];
+            pointerWindowHeight = await JSInterop.GetClientHeight(pointerWindow);
+            pointerHeight = await JSInterop.GetClientHeight(pointer);
+        }
+    }
+}

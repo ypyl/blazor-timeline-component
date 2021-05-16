@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>timeline</title>
+    <base href="/" />
+    <link href="css/app.css" rel="stylesheet" />
+    <link href="timeline.styles.css" rel="stylesheet" />
+    <style>
+        .hide-scroll::-webkit-scrollbar {
+            width: 0 !important;
+        }
+        .hide-scroll {
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app">Loading...</div>
+
+    <script src="_framework/blazor.webassembly.js"></script>
+    <script>
+        window.getWindowHeight = () => window.innerHeight;
+        window.getDocumentTopScroll = (element) => [element.scrollTop, element.scrollHeight];
+        window.getScrollHeight = (element) => element.scrollHeight;
+        window.scrollToCustom = (element, y) => element.scrollTo({
+            top: y,
+            left: 0
+        });
+    </script>
+</body>
+
+</html>
